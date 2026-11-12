@@ -89,3 +89,42 @@ To complete this task, Terraform and Azure CLI must be installed and configured 
 - Verify the application is running by visiting the public IP in a web browser.
 
 **10. Pull request's description should also contain a reference to a successful workflow run**
+
+## Run the Terraform configuration
+
+Use Terraform 1.8.4 or later and an Azure CLI session for the subscription. The
+network uses a Standard static public IPv4 because Azure retired Basic public
+IPv4. SSH and the ToDo app on port 8080 are open to the IPv4 address specified
+in access_cidr.
+
+Create the backend storage account and private tfstate container separately.
+Assign Storage Blob Data Contributor on the state container to the identity
+that runs Terraform. Use the name of that storage account during initialization.
+
+    terraform init -backend-config="storage_account_name=<backend-storage-account>"
+
+If the state storage is in a different resource group, also pass
+-backend-config="resource_group_name=<backend-resource-group>". Give this
+deployment its own backend key when reusing a container from another task.
+
+Create a local deployment.tfvars with your RSA public key and the public IPv4
+address of the client you will use to access the app. The file is ignored by Git.
+
+    ssh_key_public = "ssh-rsa <public-key>"
+    access_cidr    = "<your-public-ipv4>/32"
+
+If the application resource group already exists, import it into this state
+before the first plan. This is necessary when creating the backend in the same
+group specified in the assignment. Terraform protects a nonempty group against
+deletion so that the backend account can remain in place.
+
+    terraform import -var-file=deployment.tfvars azurerm_resource_group.main "/subscriptions/<subscription-id>/resourceGroups/mate-azure-task-12"
+
+If Standard_B1s is unavailable in the selected region, also set vm_size to an
+available Ubuntu-compatible size. The Custom Script extension downloads
+install-app.sh and the archive of app/ from the private task-artifacts container.
+The archive is generated during planning and must be available during apply.
+
+    terraform plan -var-file=deployment.tfvars -out=tfplan
+    terraform apply tfplan
+    terraform output -raw application_url

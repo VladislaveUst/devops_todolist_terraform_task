@@ -1,23 +1,31 @@
 #!/bin/bash
+set -euo pipefail
 
-# Script to silently install and start the todo web app on the virtual machine. 
-# Note that all commands bellow are without sudo - that's because extention mechanism 
-# runs scripts under root user. 
+script_dir=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+app_dir=/app
+export DEBIAN_FRONTEND=noninteractive
+apt-get -q -o Acquire::Retries=3 update
+apt-get -qy -o DPkg::Lock::Timeout=120 -o Acquire::Retries=3 install python3-venv unzip curl
 
-# install system updates and isntall python3-pip package using apt. '-yq' flags are 
-# used to suppress any interactive prompts - we won't be able to confirm operation 
-# when running the script as VM extention.  
-apt-get update -yq
-apt-get install python3-pip -yq
+if ! id todoapp >/dev/null 2>&1; then
+    useradd --system --no-create-home --shell /usr/sbin/nologin todoapp
+fi
 
-# Create a directory for the app and download the files. 
-mkdir /app 
-# make sure to uncomment the line bellow and update the link with your GitHub username
-# git clone https://github.com/<your-gh-username>/azure_task_12_deploy_app_with_vm_extention.git
-cp -r devops_todolist_terraform_task/app/* /app
+install -d "$app_dir"
+unzip -oq "$script_dir/todolist-app.zip" -d "$app_dir"
+python3 -m venv "$app_dir/.venv"
+"$app_dir/.venv/bin/python" -m pip install -r "$app_dir/requirements.txt"
+chown -R todoapp:todoapp "$app_dir"
 
-# create a service for the app via systemctl and start the app
-mv /app/todoapp.service /etc/systemd/system/
+if [[ ! -f /etc/todoapp.env ]]; then
+    (
+        umask 077
+        printf 'DJANGO_SECRET_KEY=%s\nDJANGO_DEBUG=0\n' "$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" > /etc/todoapp.env
+    )
+fi
+
+sed 's/\r$//' "$app_dir/todoapp.service" > /etc/systemd/system/todoapp.service
 systemctl daemon-reload
-systemctl start todoapp
-systemctl enable todoapp
+systemctl enable todoapp.service
+systemctl restart todoapp.service
+curl -fsS --retry 15 --retry-connrefused --retry-delay 2 --max-time 5 http://127.0.0.1:8080/ >/dev/null

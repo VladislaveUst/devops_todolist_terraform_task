@@ -1,11 +1,15 @@
 [Unit]
-Description=todoapp service
+Description=ToDo List application
+After=network.target
 
 [Service]
+User=todoapp
+Group=todoapp
 WorkingDirectory=/app
-ExecStart=/app/start.sh
-StandardOutput=syslog
-StandardError=syslog
+EnvironmentFile=/etc/todoapp.env
+ExecStartPre=/app/.venv/bin/python manage.py migrate --noinput
+ExecStart=/app/.venv/bin/python manage.py runserver 0.0.0.0:8080 --noreload --insecure
+Restart=on-failure
 
 [Install]
 WantedBy=multi-user.target
